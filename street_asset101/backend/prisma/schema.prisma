@@ -1,0 +1,433 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  DIRECTOR_GENERAL
+  ENGINEERING_REGULATORY_DDG
+  PROCUREMENT_DIRECTOR
+  DESIGN_PROJECT_DIRECTOR
+  LICENSE_PERMIT_DDG
+  ICT_DIRECTOR
+  LICENSE_CUSTOMER_SERVICE_DIRECTOR
+  OPERATION_MAINTENANCE_DDG
+  OPERATION_MAINTENANCE_DIRECTOR
+  MAINTENANCE_CENTER_DIRECTOR
+  NORTH_REGION_DIRECTOR
+  SOUTH_REGION_DIRECTOR
+  WEST_REGION_DIRECTOR
+  EAST_REGION_DIRECTOR
+  CALL_CENTER_AGENT
+  MAINTENANCE_ENGINEER
+  SUPERVISOR
+}
+
+enum RegionName {
+  NORTH
+  SOUTH
+  WEST
+  EAST
+}
+
+enum PoleStatus {
+  ACTIVE
+  INACTIVE
+  DAMAGED
+  UNDER_MAINTENANCE
+  DECOMMISSIONED
+}
+
+enum MaintenanceStatus {
+  GOOD
+  FAIR
+  POOR
+  CRITICAL
+}
+
+enum IncidentStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+  REJECTED
+}
+
+enum IncidentCategory {
+  POLE_MAINTENANCE
+  CUSTOMER_COMPLAINT
+  SERVICE_FEEDBACK
+  OFFICE_INQUIRY
+  EMERGENCY
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+enum WorkOrderStatus {
+  PENDING
+  ASSIGNED
+  IN_PROGRESS
+  COMPLETED
+  APPROVED
+  REJECTED
+  REVISION_REQUESTED
+}
+
+enum WorkOrderType {
+  HEAD_OFFICE
+  REGIONAL
+}
+
+enum TicketStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+
+// ─── Users & Auth ───────────────────────────────────────────
+model User {
+  id            String    @id @default(uuid()) @db.Uuid
+  email         String    @unique
+  password      String
+  firstName     String
+  lastName      String
+  phone         String?
+  avatar        String?
+  role          UserRole
+  region        RegionName? @map("region")
+  subcity       String?
+  isActive      Boolean   @default(true)
+  lastLogin     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  createdPoles      Pole[]           @relation("PoleCreator")
+  updatedPoles      Pole[]           @relation("PoleUpdater")
+  incidents         Incident[]
+  assignedIncidents Incident[]       @relation("IncidentAssignee")
+  workOrders        WorkOrder[]
+  assignedWorkOrders WorkOrder[]     @relation("WorkOrderAssignee")
+  maintenanceReports MaintenanceReport[] @relation("ReportReviewer")
+  engineerReports   MaintenanceReport[] @relation("EngineerReports")
+  inventoryRequests InventoryRequest[]  @relation("RequestCreator")
+  approvals         InventoryRequest[]  @relation("RequestApprover")
+  auditLogs         AuditLog[]
+  notifications     Notification[]
+  callLogs          CallLog[]
+  attachments       Attachment[]
+  comments          Comment[]
+
+  @@map("users")
+}
+
+// ─── Regions & Subcities ──────────────────────────────────
+model Region {
+  id        String     @id @default(uuid()) @db.Uuid
+  name      RegionName @unique
+  code      String     @unique
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  subcities Subcity[]
+  poles     Pole[]
+  workOrders WorkOrder[] @relation("WorkOrderRegion")
+
+  @@map("regions")
+}
+
+model Subcity {
+  id        String   @id @default(uuid()) @db.Uuid
+  name      String
+  regionId  String   @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  region Region @relation(fields: [regionId], references: [id])
+  poles  Pole[]
+
+  @@unique([name, regionId])
+  @@map("subcities")
+}
+
+// ─── Street Light Poles ────────────────────────────────────
+model Pole {
+  id                String            @id @default(uuid()) @db.Uuid
+  streetLightId     String            @unique
+  latitude          Float
+  longitude         Float
+  location          String?           // GeoJSON Point
+  lampType          String?
+  poleMaterial      String?
+  poleCondition     String?
+  status            PoleStatus        @default(ACTIVE)
+  maintenanceStatus MaintenanceStatus @default(GOOD)
+  regionId          String            @db.Uuid
+  subcityId         String?           @db.Uuid
+  installationDate  DateTime?
+  photoUrl          String?
+  remarks           String?
+  createdById       String            @db.Uuid
+  updatedById       String?           @db.Uuid
+  isDeleted         Boolean           @default(false)
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+
+  region    Region  @relation(fields: [regionId], references: [id])
+  subcity   Subcity? @relation(fields: [subcityId], references: [id])
+  createdBy User    @relation("PoleCreator", fields: [createdById], references: [id])
+  updatedBy User?   @relation("PoleUpdater", fields: [updatedById], references: [id])
+
+  incidents    Incident[]
+  workOrders   WorkOrder[]
+  notifications Notification[]
+
+  @@index([regionId])
+  @@index([subcityId])
+  @@index([status])
+  @@index([streetLightId])
+  @@map("poles")
+}
+
+// ─── Incidents / Call Center ──────────────────────────────
+model Incident {
+  id              String           @id @default(uuid()) @db.Uuid
+  ticketId        String           @unique
+  callerName      String
+  phoneNumber     String
+  incidentType    IncidentCategory
+  description     String
+  location        String?
+  priority        Priority         @default(MEDIUM)
+  status          IncidentStatus   @default(OPEN)
+  poleId          String?          @db.Uuid
+  reportedById    String           @db.Uuid
+  assignedToId    String?          @db.Uuid
+  slaDeadline     DateTime?
+  resolvedAt      DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  pole       Pole?  @relation(fields: [poleId], references: [id])
+  reportedBy User   @relation(fields: [reportedById], references: [id])
+  assignedTo User?  @relation("IncidentAssignee", fields: [assignedToId], references: [id])
+
+  workOrders    WorkOrder[]
+  callLogs      CallLog[]
+  attachments   Attachment[]
+  notifications Notification[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([poleId])
+  @@map("incidents")
+}
+
+// ─── Work Orders ──────────────────────────────────────────
+model WorkOrder {
+  id              String        @id @default(uuid()) @db.Uuid
+  workOrderId     String        @unique
+  title           String
+  description     String?
+  type            WorkOrderType @default(HEAD_OFFICE)
+  status          WorkOrderStatus @default(PENDING)
+  priority        Priority      @default(MEDIUM)
+  incidentId      String?       @db.Uuid
+  poleId          String?       @db.Uuid
+  assignedById    String        @db.Uuid
+  assignedToId    String?       @db.Uuid
+  regionId        String?       @db.Uuid
+  dueDate         DateTime?
+  completedAt     DateTime?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  incident          Incident?          @relation(fields: [incidentId], references: [id])
+  pole              Pole?              @relation(fields: [poleId], references: [id])
+  assignedBy        User               @relation(fields: [assignedById], references: [id])
+  assignedTo        User?              @relation("WorkOrderAssignee", fields: [assignedToId], references: [id])
+  region            Region?            @relation("WorkOrderRegion", fields: [regionId], references: [id])
+  maintenanceReports MaintenanceReport[]
+  inventoryRequests  InventoryRequest[]
+  notifications      Notification[]
+
+  @@index([status])
+  @@index([assignedToId])
+  @@index([regionId])
+  @@map("work_orders")
+}
+
+// ─── Maintenance Reports ──────────────────────────────────
+model MaintenanceReport {
+  id              String     @id @default(uuid()) @db.Uuid
+  workOrderId     String     @db.Uuid
+  engineerId      String     @db.Uuid
+  description     String?
+  inventoryUsed   String?    // JSON string
+  completionPhotos String?   // Comma-separated URLs
+  status          WorkOrderStatus @default(COMPLETED)
+  reviewedById    String?    @db.Uuid
+  reviewNotes     String?
+  reviewedAt      DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  workOrder  WorkOrder @relation(fields: [workOrderId], references: [id])
+  engineer   User      @relation("EngineerReports", fields: [engineerId], references: [id])
+  reviewedBy User?     @relation("ReportReviewer", fields: [reviewedById], references: [id])
+
+  @@map("maintenance_reports")
+}
+
+// ─── Inventory ────────────────────────────────────────────
+model InventoryRequest {
+  id              String   @id @default(uuid()) @db.Uuid
+  requestId       String   @unique
+  title           String
+  description     String?
+  items           String   // JSON array of {name, quantity, unit}
+  status          String   @default("PENDING") // PENDING, APPROVED, REJECTED, FULFILLED
+  workOrderId     String?  @db.Uuid
+  requestedById   String   @db.Uuid
+  approvedById    String?  @db.Uuid
+  approvedAt      DateTime?
+  notes           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workOrder  WorkOrder? @relation(fields: [workOrderId], references: [id])
+  requestedBy User      @relation("RequestCreator", fields: [requestedById], references: [id])
+  approvedBy  User?     @relation("RequestApprover", fields: [approvedById], references: [id])
+
+  @@map("inventory_requests")
+}
+
+model InventoryItem {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  description String?
+  quantity    Int      @default(0)
+  unit        String   @default("pcs")
+  minQuantity Int      @default(10)
+  location    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@map("inventory_items")
+}
+
+// ─── Notifications ────────────────────────────────────────
+model Notification {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  title     String
+  message   String
+  type      String   // APPROVAL, REJECTION, ASSIGNMENT, COMPLETION, ALERT, ESCALATION
+  poleId    String?  @db.Uuid
+  incidentId String? @db.Uuid
+  workOrderId String? @db.Uuid
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User        @relation(fields: [userId], references: [id])
+  pole      Pole?       @relation(fields: [poleId], references: [id])
+  incident  Incident?   @relation(fields: [incidentId], references: [id])
+  workOrder WorkOrder?  @relation(fields: [workOrderId], references: [id])
+
+  @@index([userId])
+  @@index([isRead])
+  @@map("notifications")
+}
+
+// ─── Audit Logs ───────────────────────────────────────────
+model AuditLog {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  action    String   // CREATE, UPDATE, DELETE, APPROVE, REJECT, LOGIN, EXPORT
+  entity    String   // POLE, INCIDENT, WORK_ORDER, USER, etc.
+  entityId  String?
+  metadata  String?  // JSON string
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([entity])
+  @@index([action])
+  @@map("audit_logs")
+}
+
+// ─── Attachments ──────────────────────────────────────────
+model Attachment {
+  id          String   @id @default(uuid()) @db.Uuid
+  fileName    String
+  filePath    String
+  fileType    String
+  fileSize    Int
+  incidentId  String?  @db.Uuid
+  uploadedById String  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  incident  Incident? @relation(fields: [incidentId], references: [id])
+  uploadedBy User     @relation(fields: [uploadedById], references: [id])
+
+  @@map("attachments")
+}
+
+// ─── Call Logs ────────────────────────────────────────────
+model CallLog {
+  id            String   @id @default(uuid()) @db.Uuid
+  callerName    String
+  phoneNumber   String
+  agentId       String   @db.Uuid
+  duration      Int?     // seconds
+  callType      String?  // INCOMING, OUTGOING, FORWARDED
+  recordingUrl  String?
+  notes         String?
+  incidentId    String?  @db.Uuid
+  createdAt     DateTime @default(now())
+
+  agent    User      @relation(fields: [agentId], references: [id])
+  incident Incident? @relation(fields: [incidentId], references: [id])
+
+  @@map("call_logs")
+}
+
+// ─── Comments (workflow comments) ─────────────────────────
+model Comment {
+  id        String   @id @default(uuid()) @db.Uuid
+  content   String
+  userId    String   @db.Uuid
+  entity    String   // WORK_ORDER, INCIDENT, INVENTORY_REQUEST
+  entityId  String   @db.Uuid
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@map("comments")
+}
+
+// ─── Import History ──────────────────────────────────────
+model ImportHistory {
+  id          String   @id @default(uuid()) @db.Uuid
+  fileName    String
+  entity      String   // POLE
+  totalRows   Int
+  successRows Int
+  failedRows  Int
+  errors      String?  // JSON array
+  importedById String  @db.Uuid
+  createdAt   DateTime @default(now())
+
+  @@map("import_histories")
+}
