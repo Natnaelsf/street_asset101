@@ -39,6 +39,23 @@ cp .env.example .env
 # NEXT_PUBLIC_API_URL=http://192.168.213.128/api/v1
 ```
 
+### Automated server deployment helper
+
+A helper script is available at `scripts/complete-deploy.sh`.
+
+Run it as root from the project root:
+
+```bash
+sudo bash scripts/complete-deploy.sh /opt/street_asset101 192.168.213.128
+```
+
+The script will:
+- install Docker and Compose if missing
+- create or update `.env`
+- build and start the stack with Docker Compose
+- run Prisma migrations and seed
+- show running containers
+
 ## Quick Start (Docker)
 
 ### 1. Clone & Configure
